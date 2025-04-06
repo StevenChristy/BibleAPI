@@ -1,0 +1,30 @@
+﻿{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "BibleAPI",
+	"Description": "",
+	"Category": "Other",
+	"CreatedBy": "Steven Christy",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "BibleAPI",
+			"Type": "Runtime",
+			"LoadingPhase": "PreLoadingScreen"
+		}
+	],
+	"AdditionalFiles": [
+		{
+			"Path": "Bibles",
+			"Type": "Directory",
+			"IncludeInPackaging": true
+		}
+	]
+}
