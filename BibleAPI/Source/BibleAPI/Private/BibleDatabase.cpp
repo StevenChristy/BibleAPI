@@ -1,6 +1,8 @@
 ﻿// BibleAPI 
 #include "BibleDatabase.h"
 
+#include "BibleAPIBPLibrary.h"
+
 /* Schema:
 
 CREATE TABLE IF NOT EXISTS "ASV_books" (
@@ -76,6 +78,15 @@ bool UBibleDatabase::Open(FString Path, FString TranslationCode)
         
         SQL = TEXT("SELECT id, word, is_proper_noun, frequency FROM ") + TranslationCode + TEXT("_words WHERE word = ?");
         GetWordQuery.Create(BibleDB, *SQL);
+
+        SQL = TEXT("SELECT verse_id FROM ") + TranslationCode + TEXT("_word_occurrences a WHERE word_id = ? ORDER BY verse_id");
+        GetVerseIDsFromWordIDQuery.Create(BibleDB, *SQL);
+
+        SQL = TEXT("SELECT id, book_id, chapter, verse, text FROM ") + TranslationCode + TEXT("_verses WHERE id = ?"); 
+        GetVerseByIDQuery.Create(BibleDB, *SQL);
+
+        SQL = TEXT("SELECT id, word, is_proper_noun, frequency FROM ") + TranslationCode + TEXT("_words WHERE id = ?");
+        GetWordByIDQuery.Create(BibleDB, *SQL);
         
         Books.Reset();
         FSQLitePreparedStatement BooksQuery;
@@ -265,6 +276,98 @@ bool UBibleDatabase::GetWord(FString Word, FBibleWord& BibleWord)
 
     return Result;
 }
+
+TArray<int32> UBibleDatabase::GetVerseIDsFromWordID(int32 WordID)
+{
+    TArray<int32> Result;
+    
+    if (GetVerseIDsFromWordIDQuery.IsValid())
+    {
+        GetVerseIDsFromWordIDQuery.SetBindingValueByIndex(1,WordID);
+        if (GetVerseIDsFromWordIDQuery.Execute())
+        {
+            while (GetVerseIDsFromWordIDQuery.Step() == ESQLitePreparedStatementStepResult::Row)
+            {
+                int32 VerseID = 0;
+                if (GetVerseIDsFromWordIDQuery.GetColumnValueByIndex(0, VerseID))
+                    Result.Add(VerseID);
+            }
+            GetVerseIDsFromWordIDQuery.Reset();
+        }
+        GetVerseIDsFromWordIDQuery.ClearBindings();
+    }
+
+    return Result;
+}
+
+TArray<int32> UBibleDatabase::GetVerseIDsWithWordIDs(const TArray<int32>& WordIDs)
+{
+    // There are inefficiencies with this approach, but the code is easy to understand. We basically want verses matching all the words provided. The more words given the less verses that will be matched.
+    // Optimization for this is not trivial.
+    TArray<int32> Result;
+    
+    const int32 *WordID = WordIDs.GetData();
+    for (int32 i = 0; i < WordIDs.Num(); i++)
+    {
+        if (i == 0)
+        {
+            Result = GetVerseIDsFromWordID(*WordID++);
+        }
+        else
+        {
+            Result = UBibleAPIBPLibrary::GetIntersectionOfSortedIntegerArrays(Result, GetVerseIDsFromWordID(*WordID++));
+        }
+    }
+
+    return Result;
+}
+
+bool UBibleDatabase::GetVerseByID(int32 VerseID, FBibleVerse& BibleVerse)
+{
+    bool Result = false;
+    if (GetVerseByIDQuery.IsValid())
+    {
+        GetVerseByIDQuery.SetBindingValueByIndex(1,VerseID);
+        
+        if (GetVerseByIDQuery.Execute())
+        {
+            if (GetVerseByIDQuery.Step() == ESQLitePreparedStatementStepResult::Row)
+            {
+                GetVerseByIDQuery.GetColumnValueByIndex(0, BibleVerse.VerseID);
+                GetVerseByIDQuery.GetColumnValueByIndex(1, BibleVerse.BookID);
+                GetVerseByIDQuery.GetColumnValueByIndex(2, BibleVerse.Chapter);
+                GetVerseByIDQuery.GetColumnValueByIndex(3, BibleVerse.Verse);
+                GetVerseByIDQuery.GetColumnValueByIndex(4, BibleVerse.Text);
+                Result = true;
+            }
+            GetVerseByIDQuery.Reset();
+        }
+        GetVerseByIDQuery.ClearBindings();
+    }
+    return Result;
+}
+
+bool UBibleDatabase::GetWordByID(int32 WordID, FBibleWord& BibleWord)
+{
+    bool Result = false;
+    if (GetWordByIDQuery.IsValid())
+    {
+        GetWordByIDQuery.SetBindingValueByIndex(1,WordID);
+        if (GetWordByIDQuery.Execute())
+        {
+            if (GetWordByIDQuery.Step() == ESQLitePreparedStatementStepResult::Row)
+            {
+                GetWordByIDQuery.GetColumnValueByIndex(0, BibleWord.WordID);
+                GetWordByIDQuery.GetColumnValueByIndex(1, BibleWord.Word);
+                GetWordByIDQuery.GetColumnValueByIndex(2, BibleWord.IsProperNoun);
+                GetWordByIDQuery.GetColumnValueByIndex(3, BibleWord.Frequency);
+                Result = true;
+            }
+            GetWordByIDQuery.Reset();
+        }
+        GetWordByIDQuery.ClearBindings();
+    }
+    return Result;
 }
 
 void UBibleDatabase::BeginDestroy()
@@ -277,75 +380,10 @@ void UBibleDatabase::BeginDestroy()
         GetVersesQuery.Destroy();
         GetVerseWordsQuery.Destroy();
         GetWordQuery.Destroy();
+        GetVerseIDsFromWordIDQuery.Destroy();
+        GetVerseByIDQuery.Destroy();
+        GetWordByIDQuery.Destroy();
         BibleDB.Close();
     }
     UObject::BeginDestroy();
 }
-
-/*
-TArray<FBibleWord> UBibleDatabase::GetWordsForVerseCompletion(const TArray<FString>& PlayerWords, int32 MaxSuggestions)
-{
-    TArray<FBibleWord> Suggestions;
-    if (!BibleDB.IsValid() || PlayerWords.Num() == 0) return Suggestions;
-
-    // Find verses containing at least one of the player's words
-    FString WordList = TEXT("'") + FString::Join(PlayerWords, TEXT("','")) + TEXT("'");
-    FString QueryStr = FString::Printf(
-        TEXT("SELECT DISTINCT w.id, w.word, w.is_proper_noun, w.frequency ")
-        TEXT("FROM ASV_words w ")
-        TEXT("JOIN ASV_word_occurrences wo ON w.id = wo.word_id ")
-        TEXT("JOIN ASV_verses v ON wo.verse_id = v.id ")
-        TEXT("WHERE v.id IN (")
-        TEXT("    SELECT v2.id FROM ASV_verses v2 ")
-        TEXT("    JOIN ASV_word_occurrences wo2 ON v2.id = wo2.verse_id ")
-        TEXT("    JOIN ASV_words w2 ON wo2.word_id = w2.id ")
-        TEXT("    WHERE w2.word IN (%s) ")
-        TEXT(") AND w.word NOT IN (%s) ")
-        TEXT("LIMIT %d"), *WordList, *WordList, MaxSuggestions);
-
-    FSQLitePreparedStatement Query;
-    if (Query.Create(BibleDB, *QueryStr))
-    {
-        if (Query.Execute())
-        {
-            while (Query.Step() == ESQLitePreparedStatementStepResult::Row)
-            {
-                FBibleWord &Word = Suggestions.Emplace_GetRef();
-                Query.GetColumnValueByIndex(0, Word.WordID);
-                Query.GetColumnValueByIndex(1, Word.Word);
-                Query.GetColumnValueByIndex(2, Word.IsProperNoun);
-                Query.GetColumnValueByIndex(3, Word.Frequency);
-            }
-        }
-        Query.Destroy();
-    }
-    return Suggestions;
-}
-
-FBibleVerse UBibleDatabase::GetVerse(int32 BookID, int32 Chapter, int32 Verse)
-{
-    FBibleVerse Result;
-    if (!BibleDB.IsValid()) return Result;
-
-    FSQLitePreparedStatement Query;
-    if (Query.Create(BibleDB, TEXT("SELECT b.name, v.chapter, v.verse, v.text FROM ASV_verses v JOIN ASV_books b ON v.book_id = b.id WHERE v.book_id = ? AND v.chapter = ? AND v.verse = ?")))
-    {
-        Query.SetBindingValueByIndex(1, BookID);
-        Query.SetBindingValueByIndex(2, Chapter);
-        Query.SetBindingValueByIndex(3, Verse);
-        if (Query.Execute())
-        {
-            if (Query.Step()==ESQLitePreparedStatementStepResult::Row)
-            {
-                Result.BookID = BookID;
-                Result.BookName = Query.GetColumnText(0);
-                Result.Chapter = Query.GetColumnInt(1);
-                Result.Verse = Query.GetColumnInt(2);
-                Result.Text = Query.GetColumnText(3);
-            }
-        }
-        Query.Destroy();
-    }
-    return Result;
-}
-*/

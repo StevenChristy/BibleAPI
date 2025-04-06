@@ -74,6 +74,9 @@ class BIBLEAPI_API UBibleDatabase : public UObject
 	FSQLitePreparedStatement GetVersesQuery;
 	FSQLitePreparedStatement GetVerseWordsQuery;
 	FSQLitePreparedStatement GetWordQuery;
+	FSQLitePreparedStatement GetVerseIDsFromWordIDQuery;
+	FSQLitePreparedStatement GetVerseByIDQuery;
+	FSQLitePreparedStatement GetWordByIDQuery;
 
 public:
 	UPROPERTY(BlueprintReadOnly, Category = "BibleAPI")
@@ -108,6 +111,18 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "BibleAPI")
 	bool GetWord(FString Word, FBibleWord &BibleWord);
+
+	UFUNCTION(BlueprintCallable, Category = "BibleAPI")
+	TArray<int32> GetVerseIDsFromWordID(int32 WordID);
+
+	UFUNCTION(BlueprintCallable, Category = "BibleAPI")
+	TArray<int32> GetVerseIDsWithWordIDs(const TArray<int32>& WordIDs);
+
+	UFUNCTION(BlueprintCallable, Category = "BibleAPI")
+	bool GetVerseByID( int32 VerseID, FBibleVerse &BibleVerse );
+	
+	UFUNCTION(BlueprintCallable, Category = "BibleAPI")
+	bool GetWordByID( int32 WordID, FBibleWord &BibleWord );
 	
 	virtual void BeginDestroy() override;
 	bool Open(FString Path, FString TranslationCode);
