@@ -13,3 +13,6 @@ The BibleAPI Plugin for Unreal Engine provides a convienient way to add biblical
 
 * The python script may incorrectly mark words that are capitalized as proper nouns even when they are not. 
 * There is currently no support for word similarity, so fish and fishes are treated as seperate words.
+* Currently only English is supported. Though it should be possible to extend it to support many other languages by altering the python script which parses the verses into words.
+
+
